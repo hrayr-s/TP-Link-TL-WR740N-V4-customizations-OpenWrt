@@ -40,6 +40,53 @@ Prerequisites:
 - `curl`
 - `shasum` or `sha256sum`
 
+## Fresh Clone Build
+
+From a clean machine with Docker installed:
+
+```sh
+git clone git@github.com:hrayr-s/TP-Link-TL-WR740N-V4-customizations-OpenWrt.git
+cd TP-Link-TL-WR740N-V4-customizations-OpenWrt
+docker --version
+./scripts/build-openwrt-image.sh
+```
+
+The build script downloads the official OpenWrt ImageBuilder archive, verifies
+its SHA256, runs ImageBuilder inside a Debian 11 Docker container, applies the
+overlay from `overlays/tl-wr740n-v4-vpn-wds/files`, and writes images to:
+
+```text
+openwrt-build/output/images-vpn-wds/
+```
+
+Expected output files:
+
+```text
+openwrt-18.06.9-ar71xx-tiny-tl-wr740n-v4-squashfs-factory.bin
+openwrt-18.06.9-ar71xx-tiny-tl-wr740n-v4-squashfs-sysupgrade.bin
+openwrt-18.06.9-ar71xx-tiny-device-tl-wr740n-v4.manifest
+```
+
+Verify the generated images:
+
+```sh
+shasum -a 256 openwrt-build/output/images-vpn-wds/*.bin
+file openwrt-build/output/images-vpn-wds/*.bin
+```
+
+Current expected hashes:
+
+```text
+ea3b1c1c7f024623c980a027bc4d4c24c98c1cdeaf50e9f7918e7580282c92c4  openwrt-18.06.9-ar71xx-tiny-tl-wr740n-v4-squashfs-factory.bin
+e60fe3241664cd2b46760043ce15d3e6a643d927a734c23d5d158084d706c651  openwrt-18.06.9-ar71xx-tiny-tl-wr740n-v4-squashfs-sysupgrade.bin
+```
+
+The original TP-Link OEM firmware images are not required to build this custom
+OpenWrt image. They were used only for local analysis and are intentionally not
+part of the public repository.
+
+## Build Options
+
 Build the default TL-WR740N v4 image:
 
 ```sh
