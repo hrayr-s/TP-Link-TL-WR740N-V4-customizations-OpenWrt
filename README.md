@@ -17,6 +17,23 @@ This project does not repack TP-Link vendor firmware. It uses the OpenWrt
 ImageBuilder plus a small overlay, and it does not modify ART/calibration data
 or the bootloader.
 
+## Disclaimer
+
+This project is provided for educational and personal use on hardware you own
+or are explicitly authorized to modify.
+
+Flashing custom firmware can permanently brick your router, interrupt network
+access, void warranty coverage, or require serial/UART or TFTP recovery. Use
+these images only with the exact supported hardware revision: TP-Link
+TL-WR740N/ND v4.
+
+This repository does not provide official TP-Link firmware, is not affiliated
+with TP-Link, and does not include vendor firmware binaries. The build uses
+OpenWrt 18.06.9, which is old and unsupported upstream.
+
+No warranty is provided. You are responsible for verifying image compatibility,
+keeping backups, and having a tested recovery path before flashing.
+
 ## Repository Layout
 
 ```text
@@ -142,3 +159,11 @@ Use:
 - `sysupgrade.bin` only after the router is already running OpenWrt.
 
 Do not write to ART/calibration partitions.
+
+## License
+
+The repository scripts, documentation, and custom overlay files are licensed
+under the MIT License. See [LICENSE](LICENSE).
+
+Generated firmware images include OpenWrt and package contents, which remain
+under their respective upstream licenses.
