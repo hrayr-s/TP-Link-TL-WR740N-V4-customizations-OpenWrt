@@ -1,0 +1,107 @@
+#!/bin/sh
+set -eu
+
+usage() {
+	cat <<'EOF'
+Usage:
+  vpn-wg-profile <private-key> <local-address> <peer-public-key> <endpoint-host:port> [allowed-ips] [dns] [upstream-gateway]
+
+Examples:
+  vpn-wg-profile '<private>' 10.8.0.2/32 '<peer-public>' vpn.example.net:51820
+  vpn-wg-profile '<private>' 10.8.0.2/32 '<peer-public>' 203.0.113.10:51820 0.0.0.0/0 1.1.1.1 192.168.1.1
+
+allowed-ips defaults to 0.0.0.0/0, making this router a VPN gateway for LAN
+clients that use its LAN IP as their default gateway. If endpoint-host is an
+IPv4 address and upstream-gateway is provided, a host route is added so the VPN
+endpoint remains reachable through the normal LAN gateway.
+EOF
+}
+
+uci_delete() {
+	uci -q delete "$1" 2>/dev/null || true
+}
+
+if [ "${1:-}" = "-h" ] || [ "${1:-}" = "--help" ]; then
+	usage
+	exit 0
+fi
+[ "$#" -ge 4 ] || { usage >&2; exit 2; }
+
+PRIVATE_KEY="$1"
+LOCAL_ADDRESS="$2"
+PEER_PUBLIC_KEY="$3"
+ENDPOINT="$4"
+ALLOWED_IPS="${5:-0.0.0.0/0}"
+DNS_SERVER="${6:-}"
+UPSTREAM_GATEWAY="${7:-}"
+
+ENDPOINT_HOST="${ENDPOINT%:*}"
+ENDPOINT_PORT="${ENDPOINT##*:}"
+[ "$ENDPOINT_HOST" != "$ENDPOINT_PORT" ] || ENDPOINT_PORT='51820'
+
+uci_delete network.wg0
+uci_delete network.wgpeer
+uci_delete network.wg_endpoint_route
+
+uci set network.wg0='interface'
+uci set network.wg0.proto='wireguard'
+uci set network.wg0.private_key="$PRIVATE_KEY"
+uci add_list network.wg0.addresses="$LOCAL_ADDRESS"
+uci set network.wg0.mtu='1420'
+
+if [ -n "$DNS_SERVER" ]; then
+	uci add_list network.wg0.dns="$DNS_SERVER"
+fi
+
+uci set network.wgpeer='wireguard_wg0'
+uci set network.wgpeer.public_key="$PEER_PUBLIC_KEY"
+uci set network.wgpeer.endpoint_host="$ENDPOINT_HOST"
+uci set network.wgpeer.endpoint_port="$ENDPOINT_PORT"
+uci set network.wgpeer.persistent_keepalive='25'
+uci set network.wgpeer.route_allowed_ips='1'
+
+OLD_IFS="$IFS"
+IFS=','
+for network in $ALLOWED_IPS; do
+	uci add_list network.wgpeer.allowed_ips="$network"
+done
+IFS="$OLD_IFS"
+
+if [ -n "$UPSTREAM_GATEWAY" ]; then
+	case "$ENDPOINT_HOST" in
+		*[!0-9.]*|'')
+			echo "Skipping endpoint host route: endpoint host is not a plain IPv4 address." >&2
+			;;
+		*)
+			uci set network.wg_endpoint_route='route'
+			uci set network.wg_endpoint_route.interface='lan'
+			uci set network.wg_endpoint_route.target="$ENDPOINT_HOST"
+			uci set network.wg_endpoint_route.netmask='255.255.255.255'
+			uci set network.wg_endpoint_route.gateway="$UPSTREAM_GATEWAY"
+			;;
+	esac
+fi
+
+uci commit network
+
+uci set firewall.vpn='zone'
+uci set firewall.vpn.name='vpn'
+uci_delete firewall.vpn.network
+uci add_list firewall.vpn.network='wg0'
+uci set firewall.vpn.input='REJECT'
+uci set firewall.vpn.output='ACCEPT'
+uci set firewall.vpn.forward='REJECT'
+uci set firewall.vpn.masq='1'
+uci set firewall.vpn.mtu_fix='1'
+
+uci set firewall.lan_vpn='forwarding'
+uci set firewall.lan_vpn.src='lan'
+uci set firewall.lan_vpn.dest='vpn'
+uci commit firewall
+
+/etc/init.d/network reload
+/etc/init.d/firewall restart
+
+echo "WireGuard profile applied."
+echo "Use this router's LAN IP as a client default gateway to send that client through VPN."
+echo "Check status with: wg show"

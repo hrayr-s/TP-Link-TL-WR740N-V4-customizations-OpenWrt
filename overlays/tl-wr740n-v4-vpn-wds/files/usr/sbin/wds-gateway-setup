@@ -1,0 +1,207 @@
+#!/bin/sh
+set -eu
+
+usage() {
+	cat <<'EOF'
+Usage:
+  wds-gateway-setup <lan-ip/24> <dhcp-start-ip> <dhcp-end-ip> <upstream-ssid> <upstream-key> [local-ssid] [local-key] [country]
+
+Example:
+  wds-gateway-setup 192.168.50.1/24 192.168.50.100 192.168.50.199 'UPSTREAM_WIFI' 'UPSTREAM_PASSWORD' 'LOCAL_WIFI' 'LOCAL_PASSWORD' AM
+
+Configures radio0 as a WDS station on a routed/NAT uplink named wdswan.
+LAN clients use the configured local subnet and DHCP range. Choose a LAN
+subnet that does not overlap the upstream Wi-Fi network.
+
+The upstream AP must support WDS/4-address mode. The radio channel is set to
+auto; in station/WDS mode it follows the upstream AP channel.
+EOF
+}
+
+is_number() {
+	case "$1" in
+		''|*[!0-9]*) return 1 ;;
+		*) return 0 ;;
+	esac
+}
+
+uci_delete() {
+	uci -q delete "$1" 2>/dev/null || true
+}
+
+valid_ipv4() {
+	OLD_IFS="$IFS"
+	IFS=.
+	set -- $1
+	IFS="$OLD_IFS"
+
+	[ "$#" -eq 4 ] || return 1
+	for octet in "$@"; do
+		is_number "$octet" || return 1
+		[ "$octet" -ge 0 ] && [ "$octet" -le 255 ] || return 1
+	done
+}
+
+prefix24() {
+	echo "$1" | sed 's/\.[^.]*$//'
+}
+
+last_octet() {
+	echo "$1" | sed 's/^.*\.//'
+}
+
+if [ "${1:-}" = "-h" ] || [ "${1:-}" = "--help" ]; then
+	usage
+	exit 0
+fi
+[ "$#" -ge 5 ] || { usage >&2; exit 2; }
+
+LAN_CIDR="$1"
+DHCP_START_IP="$2"
+DHCP_END_IP="$3"
+UPSTREAM_SSID="$4"
+UPSTREAM_KEY="$5"
+LOCAL_SSID="${6:-}"
+LOCAL_KEY="${7:-}"
+COUNTRY="${8:-00}"
+
+case "$LAN_CIDR" in
+	*/24) LAN_IP="${LAN_CIDR%/*}" ;;
+	*) echo "Only /24 LAN subnets are supported by this helper." >&2; exit 2 ;;
+esac
+
+valid_ipv4 "$LAN_IP" || { echo "Invalid LAN IP: $LAN_IP" >&2; exit 2; }
+valid_ipv4 "$DHCP_START_IP" || { echo "Invalid DHCP start IP: $DHCP_START_IP" >&2; exit 2; }
+valid_ipv4 "$DHCP_END_IP" || { echo "Invalid DHCP end IP: $DHCP_END_IP" >&2; exit 2; }
+
+LAN_PREFIX="$(prefix24 "$LAN_IP")"
+[ "$(prefix24 "$DHCP_START_IP")" = "$LAN_PREFIX" ] || {
+	echo "DHCP start IP must be inside $LAN_PREFIX.0/24" >&2
+	exit 2
+}
+[ "$(prefix24 "$DHCP_END_IP")" = "$LAN_PREFIX" ] || {
+	echo "DHCP end IP must be inside $LAN_PREFIX.0/24" >&2
+	exit 2
+}
+
+LAN_HOST="$(last_octet "$LAN_IP")"
+DHCP_START_HOST="$(last_octet "$DHCP_START_IP")"
+DHCP_END_HOST="$(last_octet "$DHCP_END_IP")"
+
+[ "$LAN_HOST" -ge 1 ] && [ "$LAN_HOST" -le 254 ] || {
+	echo "LAN host address must not be .0 or .255" >&2
+	exit 2
+}
+[ "$DHCP_START_HOST" -ge 1 ] && [ "$DHCP_START_HOST" -le 254 ] || {
+	echo "DHCP start host must not be .0 or .255" >&2
+	exit 2
+}
+[ "$DHCP_END_HOST" -ge 1 ] && [ "$DHCP_END_HOST" -le 254 ] || {
+	echo "DHCP end host must not be .0 or .255" >&2
+	exit 2
+}
+[ "$DHCP_START_HOST" -le "$DHCP_END_HOST" ] || {
+	echo "DHCP start IP must be lower than or equal to DHCP end IP" >&2
+	exit 2
+}
+
+if [ "$LAN_HOST" -ge "$DHCP_START_HOST" ] && [ "$LAN_HOST" -le "$DHCP_END_HOST" ]; then
+	echo "LAN IP must not be inside the DHCP range" >&2
+	exit 2
+fi
+
+DHCP_LIMIT=$((DHCP_END_HOST - DHCP_START_HOST + 1))
+
+if [ -n "$LOCAL_SSID" ]; then
+	[ -n "$LOCAL_KEY" ] || {
+		echo "local-key is required when local-ssid is set" >&2
+		exit 2
+	}
+fi
+
+[ -f /etc/config/wireless ] || wifi config
+
+echo "Writing WDS gateway configuration."
+echo "LAN: $LAN_IP/24"
+echo "DHCP: $DHCP_START_IP - $DHCP_END_IP"
+echo "Wireless uplink network: wdswan"
+echo "SSH may disconnect when the LAN IP changes."
+
+uci_delete network.wan
+uci_delete network.wan6
+uci set network.lan='interface'
+uci set network.lan.type='bridge'
+uci set network.lan.ifname='eth0.1 eth1'
+uci set network.lan.proto='static'
+uci set network.lan.ipaddr="$LAN_IP"
+uci set network.lan.netmask='255.255.255.0'
+uci_delete network.lan.gateway
+uci_delete network.lan.dns
+uci set network.wdswan='interface'
+uci set network.wdswan.proto='dhcp'
+uci_delete network.wdswan.ifname
+uci commit network
+
+uci_delete dhcp.wan
+uci set dhcp.lan='dhcp'
+uci set dhcp.lan.interface='lan'
+uci set dhcp.lan.start="$DHCP_START_HOST"
+uci set dhcp.lan.limit="$DHCP_LIMIT"
+uci set dhcp.lan.leasetime='12h'
+uci_delete dhcp.lan.ignore
+uci commit dhcp
+
+uci_delete firewall.wdswan
+uci_delete firewall.lan_wdswan
+uci set firewall.wdswan='zone'
+uci set firewall.wdswan.name='wdswan'
+uci set firewall.wdswan.input='REJECT'
+uci set firewall.wdswan.output='ACCEPT'
+uci set firewall.wdswan.forward='REJECT'
+uci set firewall.wdswan.masq='1'
+uci set firewall.wdswan.mtu_fix='1'
+uci add_list firewall.wdswan.network='wdswan'
+uci set firewall.lan_wdswan='forwarding'
+uci set firewall.lan_wdswan.src='lan'
+uci set firewall.lan_wdswan.dest='wdswan'
+uci commit firewall
+
+while uci -q delete wireless.@wifi-iface[0]; do :; done
+
+uci set wireless.radio0.disabled='0'
+uci set wireless.radio0.channel='auto'
+uci set wireless.radio0.country="$COUNTRY"
+uci set wireless.radio0.htmode='HT20'
+
+uci set wireless.wds_up='wifi-iface'
+uci set wireless.wds_up.device='radio0'
+uci set wireless.wds_up.mode='sta'
+uci set wireless.wds_up.network='wdswan'
+uci set wireless.wds_up.ssid="$UPSTREAM_SSID"
+uci set wireless.wds_up.encryption='psk2'
+uci set wireless.wds_up.key="$UPSTREAM_KEY"
+uci set wireless.wds_up.wds='1'
+
+if [ -n "$LOCAL_SSID" ]; then
+	uci set wireless.local_ap='wifi-iface'
+	uci set wireless.local_ap.device='radio0'
+	uci set wireless.local_ap.mode='ap'
+	uci set wireless.local_ap.network='lan'
+	uci set wireless.local_ap.ssid="$LOCAL_SSID"
+	uci set wireless.local_ap.encryption='psk2'
+	uci set wireless.local_ap.key="$LOCAL_KEY"
+fi
+
+uci commit wireless
+
+echo "Committed LAN IP: $(uci -q get network.lan.ipaddr)"
+echo "Committed wdswan proto: $(uci -q get network.wdswan.proto)"
+echo "Committed WDS SSID: $(uci -q get wireless.wds_up.ssid)"
+echo "Configuration written. Restarting network services now."
+echo "Reconnect to: ssh root@$LAN_IP"
+echo "Check uplink state with: ifstatus wdswan"
+
+/etc/init.d/dnsmasq restart
+/etc/init.d/firewall restart
+wifi reload
+/etc/init.d/network restart

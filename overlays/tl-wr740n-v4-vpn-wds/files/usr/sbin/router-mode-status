@@ -1,0 +1,15 @@
+#!/bin/sh
+
+echo "Build: ${TP_LINK_FW_BUILD:-unknown}"
+echo
+echo "Network:"
+uci show network 2>/dev/null
+echo
+echo "Wireless:"
+uci show wireless 2>/dev/null
+echo
+echo "Firewall:"
+uci show firewall 2>/dev/null
+echo
+echo "WireGuard:"
+wg show 2>/dev/null || true

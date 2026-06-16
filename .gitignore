@@ -1,0 +1,25 @@
+# Local OS/editor state
+.DS_Store
+*.swp
+*.swo
+
+# Firmware artifacts and image-builder cache
+*.bin
+*.img
+*.trx
+*.chk
+*.fw
+*.tar
+*.tar.*
+openwrt-build/downloads/
+openwrt-build/output/
+
+# Extracted vendor firmware analysis can contain copyrighted firmware contents.
+analysis/**
+!analysis/
+!analysis/report.md
+!analysis/README.md
+
+# Local scratch directories
+tmp/
+scratch/

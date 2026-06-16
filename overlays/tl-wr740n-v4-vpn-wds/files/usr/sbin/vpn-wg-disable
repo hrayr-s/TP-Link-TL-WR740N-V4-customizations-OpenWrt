@@ -1,0 +1,18 @@
+#!/bin/sh
+set -eu
+
+uci_delete() {
+	uci -q delete "$1" 2>/dev/null || true
+}
+
+uci_delete network.wg0
+uci_delete network.wgpeer
+uci_delete network.wg_endpoint_route
+uci_delete firewall.lan_vpn
+uci_delete firewall.vpn
+uci commit network
+uci commit firewall
+/etc/init.d/network reload
+/etc/init.d/firewall restart
+
+echo "WireGuard VPN configuration removed."

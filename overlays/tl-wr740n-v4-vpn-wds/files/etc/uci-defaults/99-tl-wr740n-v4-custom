@@ -1,0 +1,22 @@
+#!/bin/sh
+
+uci set system.@system[0].hostname='wr740n-v4-vpn-wds'
+uci commit system
+
+uci -q delete network.wan
+uci -q delete network.wan6
+uci set network.lan.ifname='eth0.1 eth1'
+uci commit network
+
+uci -q delete dhcp.wan
+uci commit dhcp
+
+cat >/etc/tp-link-fw-build <<'EOF'
+Custom OpenWrt VPN/WDS image for TP-Link TL-WR740N v4.
+Built from OpenWrt 18.06.9 ar71xx/tiny ImageBuilder.
+WAN routing is removed; the WAN port is bridged into LAN.
+Use wds-setup for bridge mode, wds-gateway-setup for routed/NAT WDS mode,
+and vpn-wg-profile for WireGuard setup from SSH.
+EOF
+
+exit 0
