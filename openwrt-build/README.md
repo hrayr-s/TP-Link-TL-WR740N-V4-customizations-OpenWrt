@@ -52,15 +52,15 @@ Built images are in `openwrt-build/output/images-vpn-wds/`.
 
 | Image | Size | SHA256 |
 | --- | ---: | --- |
-| `openwrt-18.06.9-ar71xx-tiny-tl-wr740n-v4-squashfs-factory.bin` | 3,932,160 bytes | `ea3b1c1c7f024623c980a027bc4d4c24c98c1cdeaf50e9f7918e7580282c92c4` |
-| `openwrt-18.06.9-ar71xx-tiny-tl-wr740n-v4-squashfs-sysupgrade.bin` | 3,342,340 bytes | `e60fe3241664cd2b46760043ce15d3e6a643d927a734c23d5d158084d706c651` |
+| `openwrt-18.06.9-ar71xx-tiny-tl-wr740n-v4-squashfs-factory.bin` | 3,932,160 bytes | `c8ff960ce11e1ba99ca6b614c5a4e7ca0c7cda0987945e23401745129e717f58` |
+| `openwrt-18.06.9-ar71xx-tiny-tl-wr740n-v4-squashfs-sysupgrade.bin` | 3,342,340 bytes | `404315d206312eb028c36e3b14c08002218b3753325df5a0b2ce557aaf179d8b` |
 
 Validated layout:
 
 - TP-Link/OpenWrt header reports `firmware 740 v4 OpenWrt r8077-7cbbab7246`
 - Kernel LZMA offset: `0x200`
 - SquashFS rootfs offset: `0x14de50`
-- SquashFS rootfs size: `1953370` bytes
+- SquashFS rootfs size: `1953474` bytes
 - Rootfs contains the VPN/WDS banner, hostname default, WireGuard packages, and helper scripts in `/usr/sbin`, including `wds-gateway-setup`
 
 ## SSH Usage
@@ -95,18 +95,31 @@ uci commit dhcp
 /etc/init.d/dnsmasq restart
 ```
 
-Configure WDS as a routed gateway:
+Configure Wi-Fi as a routed gateway:
 
 ```sh
 wds-gateway-setup 192.168.50.1/24 192.168.50.100 192.168.50.199 'UPSTREAM_SSID' 'UPSTREAM_WIFI_PASSWORD' 'LOCAL_SSID' 'LOCAL_WIFI_PASSWORD' 'AM'
 ```
 
 This creates a logical wireless uplink named `wdswan`, enables NAT from LAN to
-`wdswan`, and sets the local DHCP range from the two full IP addresses. Choose a
-local `/24` subnet that does not overlap the upstream Wi-Fi network, for example
-`192.168.50.0/24` if the upstream network is already `192.168.1.0/24`.
+`wdswan`, and sets the local DHCP range from the two full IP addresses. The
+`wdswan` network is treated as the WAN side by the firewall: LAN forwards to
+`wdswan`, and masquerading/NAT is enabled on `wdswan`.
 
-Check WDS gateway status after reconnecting to the new LAN address:
+Choose a local `/24` subnet that does not overlap the upstream Wi-Fi network,
+for example `192.168.50.0/24` if the upstream network is already
+`192.168.1.0/24`.
+
+Gateway mode uses ordinary Wi-Fi station mode by default. WDS/4-address mode is
+not needed for routed/NAT gateway mode and can prevent DHCP on many upstream
+routers. If the upstream AP explicitly supports WDS and you want to enable it,
+add `wds` as the final argument:
+
+```sh
+wds-gateway-setup 192.168.50.1/24 192.168.50.100 192.168.50.199 'UPSTREAM_SSID' 'UPSTREAM_WIFI_PASSWORD' 'LOCAL_SSID' 'LOCAL_WIFI_PASSWORD' 'AM' wds
+```
+
+Check Wi-Fi gateway status after reconnecting to the new LAN address:
 
 ```sh
 wifi status
@@ -119,7 +132,7 @@ The setup command has committed the config if it prints lines like:
 ```text
 Committed LAN IP: 192.168.50.1
 Committed wdswan proto: dhcp
-Committed WDS SSID: UPSTREAM_SSID
+Committed upstream SSID: UPSTREAM_SSID
 ```
 
 The TL-WR740N v4 radio is 2.4 GHz only. Do not use a `5G`/5 GHz upstream SSID;
@@ -129,13 +142,14 @@ use the upstream router's 2.4 GHz SSID. If `ifstatus wdswan` does not become
 These messages are common during startup:
 
 - `udhcpc: no lease, failing`: the router did not get DHCP on `wdswan`; check
-  the SSID, password, 2.4 GHz band, upstream WDS support, and upstream DHCP.
+  the SSID, password, 2.4 GHz band, and upstream DHCP. If WDS was enabled, try
+  ordinary station mode by deleting `wireless.wds_up.wds`.
 - `Warning: Unable to locate ipset utility`: harmless for this image.
 - `Section 'wdswan' cannot resolve device`: expected until the Wi-Fi station
   associates and creates the client interface.
 
-If the upstream router does not support WDS/4-address mode, use ordinary Wi-Fi
-station mode for the routed gateway:
+If `ifstatus wdswan` is `"up": false` while `iw dev wlan0 link` shows an
+upstream association, make sure WDS is disabled and restart the uplink:
 
 ```sh
 uci -q delete wireless.wds_up.wds || true

@@ -4,17 +4,18 @@ set -eu
 usage() {
 	cat <<'EOF'
 Usage:
-  wds-gateway-setup <lan-ip/24> <dhcp-start-ip> <dhcp-end-ip> <upstream-ssid> <upstream-key> [local-ssid] [local-key] [country]
+  wds-gateway-setup <lan-ip/24> <dhcp-start-ip> <dhcp-end-ip> <upstream-ssid> <upstream-key> [local-ssid] [local-key] [country] [wds]
 
 Example:
   wds-gateway-setup 192.168.50.1/24 192.168.50.100 192.168.50.199 'UPSTREAM_WIFI' 'UPSTREAM_PASSWORD' 'LOCAL_WIFI' 'LOCAL_PASSWORD' AM
 
-Configures radio0 as a WDS station on a routed/NAT uplink named wdswan.
+Configures radio0 as a Wi-Fi station on a routed/NAT uplink named wdswan.
 LAN clients use the configured local subnet and DHCP range. Choose a LAN
 subnet that does not overlap the upstream Wi-Fi network.
 
-The upstream AP must support WDS/4-address mode. The radio channel is set to
-auto; in station/WDS mode it follows the upstream AP channel.
+Gateway mode uses normal station mode by default. Add the final argument "wds"
+only when the upstream AP supports WDS/4-address mode. The radio channel is set
+to auto; in station mode it follows the upstream AP channel.
 EOF
 }
 
@@ -64,6 +65,12 @@ UPSTREAM_KEY="$5"
 LOCAL_SSID="${6:-}"
 LOCAL_KEY="${7:-}"
 COUNTRY="${8:-00}"
+WDS_MODE="${9:-}"
+
+case "$WDS_MODE" in
+	''|0|no|nowds|false|wds|1|yes|true) ;;
+	*) echo "Last argument must be empty, nowds, or wds." >&2; exit 2 ;;
+esac
 
 case "$LAN_CIDR" in
 	*/24) LAN_IP="${LAN_CIDR%/*}" ;;
@@ -121,7 +128,7 @@ fi
 
 [ -f /etc/config/wireless ] || wifi config
 
-echo "Writing WDS gateway configuration."
+echo "Writing Wi-Fi gateway configuration."
 echo "LAN: $LAN_IP/24"
 echo "DHCP: $DHCP_START_IP - $DHCP_END_IP"
 echo "Wireless uplink network: wdswan"
@@ -180,7 +187,10 @@ uci set wireless.wds_up.network='wdswan'
 uci set wireless.wds_up.ssid="$UPSTREAM_SSID"
 uci set wireless.wds_up.encryption='psk2'
 uci set wireless.wds_up.key="$UPSTREAM_KEY"
-uci set wireless.wds_up.wds='1'
+
+case "$WDS_MODE" in
+	wds|1|yes|true) uci set wireless.wds_up.wds='1' ;;
+esac
 
 if [ -n "$LOCAL_SSID" ]; then
 	uci set wireless.local_ap='wifi-iface'
@@ -196,7 +206,7 @@ uci commit wireless
 
 echo "Committed LAN IP: $(uci -q get network.lan.ipaddr)"
 echo "Committed wdswan proto: $(uci -q get network.wdswan.proto)"
-echo "Committed WDS SSID: $(uci -q get wireless.wds_up.ssid)"
+echo "Committed upstream SSID: $(uci -q get wireless.wds_up.ssid)"
 echo "Configuration written. Restarting network services now."
 echo "Reconnect to: ssh root@$LAN_IP"
 echo "Check uplink state with: ifstatus wdswan"

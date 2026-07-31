@@ -10,7 +10,7 @@ wireless gateway:
 - WAN routing removed by default
 - physical WAN port bridged into LAN
 - WireGuard helper scripts included
-- WDS bridge and routed WDS gateway helper scripts included
+- WDS bridge and routed Wi-Fi gateway helper scripts included
 - local LAN subnet and DHCP range configured from SSH
 
 This project does not repack TP-Link vendor firmware. It uses the OpenWrt
@@ -94,8 +94,8 @@ file openwrt-build/output/images-vpn-wds/*.bin
 Current expected hashes:
 
 ```text
-ea3b1c1c7f024623c980a027bc4d4c24c98c1cdeaf50e9f7918e7580282c92c4  openwrt-18.06.9-ar71xx-tiny-tl-wr740n-v4-squashfs-factory.bin
-e60fe3241664cd2b46760043ce15d3e6a643d927a734c23d5d158084d706c651  openwrt-18.06.9-ar71xx-tiny-tl-wr740n-v4-squashfs-sysupgrade.bin
+c8ff960ce11e1ba99ca6b614c5a4e7ca0c7cda0987945e23401745129e717f58  openwrt-18.06.9-ar71xx-tiny-tl-wr740n-v4-squashfs-factory.bin
+404315d206312eb028c36e3b14c08002218b3753325df5a0b2ce557aaf179d8b  openwrt-18.06.9-ar71xx-tiny-tl-wr740n-v4-squashfs-sysupgrade.bin
 ```
 
 The original TP-Link OEM firmware images are not required to build this custom
@@ -142,7 +142,7 @@ It builds:
 
 The firmware is intentionally minimal because the router has only 4 MB flash.
 See [openwrt-build/README.md](openwrt-build/README.md) for current image hashes,
-flashing notes, SSH usage, WDS gateway setup, troubleshooting, and WireGuard
+flashing notes, SSH usage, Wi-Fi gateway setup, troubleshooting, and WireGuard
 helper usage.
 
 ## Safety
